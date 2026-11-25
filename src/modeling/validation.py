@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final, override
 
-from idfpy import IDF, IDFBaseModel
+from idfpy import IDF, IDFBaseModel, RefError
 from idfpy.models import (
     BuildingSurfaceDetailed,
     FenestrationSurfaceDetailed,
@@ -56,20 +56,24 @@ def _display_name(obj: IDFBaseModel) -> str:
     return getattr(obj, "name", None) or getattr(obj, "zone_name", None) or "?"
 
 
+def describe_reference_issue(error: RefError, obj: IDFBaseModel) -> ModelIssue:
+    """Convert one idfpy reference error to the common modeling diagnostic."""
+    message = (
+        f"references '{error.referenced_name}', which does not exist"
+        if error.error_type == "missing"
+        else f"references '{error.referenced_name}': {error.detail}"
+    )
+    return ModelIssue(error.object_type, _display_name(obj), error.field_name, message)
+
+
 def reference_issues(idf: IDF) -> list[ModelIssue]:
     """Broken references from ``IDF.validate()``: missing or of the wrong type."""
-    issues = []
-    for error in idf.validate():
-        obj = idf.all_of_type(error.object_type)[error.object_name]
-        message = (
-            f"references '{error.referenced_name}', which does not exist"
-            if error.error_type == "missing"
-            else f"references '{error.referenced_name}': {error.detail}"
+    return [
+        describe_reference_issue(
+            error, idf.all_of_type(error.object_type)[error.object_name]
         )
-        issues.append(
-            ModelIssue(error.object_type, _display_name(obj), error.field_name, message)
-        )
-    return issues
+        for error in idf.validate()
+    ]
 
 
 def fenestration_issues(idf: IDF) -> list[ModelIssue]:
